@@ -1,19 +1,14 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { 
   Calendar as CalendarIcon, Search, BookOpen, Plus, X, Heart, Info,
-  ChevronLeft, Camera, Trash2, RefreshCw, Zap, ArrowRight, ShieldAlert,
-  Dna, Activity, History, TrendingUp, Star
+  ChevronLeft, Camera, Trash2, RefreshCw, Zap, ArrowRight,
+  Dna, Activity, History, TrendingUp, Star, LogOut, User
 } from 'lucide-react';
 import { FoodLog, RecoveryStage, Recipe, MedicalTip } from './types';
 import { RECIPES, MEDICAL_TIPS, RANDOM_MESSAGES } from './constants';
 import { checkFoodSafety } from './geminiService';
-
-// --- Supabase 설정 (환경변수 사용) ---
-// Vercel 환경변수에서 가져옵니다
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+import { supabase } from './supabaseClient';
 
 // --- Helper Functions ---
 const getDailySeed = () => {
@@ -69,42 +64,161 @@ const Popup = ({ isOpen, onClose, message }: { isOpen: boolean; onClose: () => v
   );
 };
 
+// --- Auth Page ---
+const AuthPage = ({ onLogin }: { onLogin: (user: any) => void }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      if (isSignUp) {
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        if (data.user) {
+          setError('이메일을 확인해주세요! (스팸함도 확인)');
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        if (data.user) onLogin(data.user);
+      }
+    } catch (err: any) {
+      setError(err.message || '오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-black flex items-center justify-center p-6">
+      <div className="kitsch-border bg-black p-8 max-w-sm w-full">
+        <h1 className="text-4xl font-black text-white leading-none mb-2">회복<span className="text-pink-500">도복</span></h1>
+        <p className="text-zinc-500 text-sm mb-8">위암 회복을 위한 힙한 식단 다이어리</p>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1 block">이메일</label>
+            <input 
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-transparent border-b-2 border-white p-2 focus:border-pink-500 outline-none font-bold text-white"
+              placeholder="email@example.com"
+              required
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1 block">비밀번호</label>
+            <input 
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-transparent border-b-2 border-white p-2 focus:border-pink-500 outline-none font-bold text-white"
+              placeholder="••••••••"
+              required
+              minLength={6}
+            />
+          </div>
+          
+          {error && <p className="text-pink-500 text-sm">{error}</p>}
+          
+          <button 
+            type="submit"
+            disabled={loading}
+            className="kitsch-button w-full py-4 font-unbounded text-lg mt-4 uppercase"
+          >
+            {loading ? '처리중...' : isSignUp ? '회원가입' : '로그인'}
+          </button>
+        </form>
+        
+        <button 
+          onClick={() => setIsSignUp(!isSignUp)}
+          className="w-full text-center text-zinc-500 text-sm mt-4 hover:text-pink-500"
+        >
+          {isSignUp ? '이미 계정이 있어요 → 로그인' : '계정이 없어요 → 회원가입'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // --- Pages ---
 
-const LogPage = () => {
+const LogPage = ({ user, onLogout }: { user: any; onLogout: () => void }) => {
   const [logs, setLogs] = useState<FoodLog[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newLog, setNewLog] = useState({ menuName: '', description: '', photoUrl: '' });
   const [loading, setLoading] = useState(true);
 
-  // 데이터 불러오기 (초기 로드 시 localStorage에서 가져오고, 나중에 Supabase로 교체 가능하도록 설계)
+  // Supabase에서 데이터 불러오기
   useEffect(() => {
-    const saved = localStorage.getItem('stomachy_logs');
-    if (saved) setLogs(JSON.parse(saved));
-    setLoading(false);
-  }, []);
-
-  const saveLog = () => {
-    if (!newLog.menuName) return;
-    const log: FoodLog = {
-      id: Math.random().toString(36).substr(2, 9),
-      date: selectedDate,
-      timestamp: Date.now(),
-      ...newLog
+    const fetchLogs = async () => {
+      const { data, error } = await supabase
+        .from('food_logs')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      
+      if (data) {
+        setLogs(data.map(log => ({
+          id: log.id,
+          date: log.date,
+          timestamp: new Date(log.created_at).getTime(),
+          menuName: log.menu_name,
+          description: log.description,
+          photoUrl: log.photo_url
+        })));
+      }
+      setLoading(false);
     };
-    const updated = [log, ...logs];
-    setLogs(updated);
-    localStorage.setItem('stomachy_logs', JSON.stringify(updated));
+    
+    fetchLogs();
+  }, [user.id]);
+
+  const saveLog = async () => {
+    if (!newLog.menuName) return;
+    
+    const { data, error } = await supabase
+      .from('food_logs')
+      .insert({
+        user_id: user.id,
+        date: selectedDate,
+        menu_name: newLog.menuName,
+        description: newLog.description,
+        photo_url: newLog.photoUrl
+      })
+      .select()
+      .single();
+    
+    if (data) {
+      const log: FoodLog = {
+        id: data.id,
+        date: data.date,
+        timestamp: new Date(data.created_at).getTime(),
+        menuName: data.menu_name,
+        description: data.description,
+        photoUrl: data.photo_url
+      };
+      setLogs([log, ...logs]);
+    }
+    
     setIsModalOpen(false);
     setNewLog({ menuName: '', description: '', photoUrl: '' });
   };
 
-  const deleteLog = (id: string) => {
+  const deleteLog = async (id: string) => {
     if (!confirm('기록을 삭제할까요?')) return;
-    const updated = logs.filter(l => l.id !== id);
-    setLogs(updated);
-    localStorage.setItem('stomachy_logs', JSON.stringify(updated));
+    
+    await supabase.from('food_logs').delete().eq('id', id);
+    setLogs(logs.filter(l => l.id !== id));
   };
 
   const dailyLogs = useMemo(() => logs.filter(l => l.date === selectedDate), [logs, selectedDate]);
@@ -125,8 +239,13 @@ const LogPage = () => {
           <h1 className="text-4xl font-black text-white leading-none">회복<br /><span className="text-pink-500">도복</span></h1>
           <p className="text-xs font-bold mt-2 uppercase tracking-widest text-zinc-400 font-unbounded">Vol. {logs.length}</p>
         </div>
-        <div className="bg-pink-500 kitsch-border p-2 text-center rotate-3">
-          <div className="text-[10px] font-black text-white uppercase leading-tight">Recovery<br/>Day {Math.max(1, historyData.length)}</div>
+        <div className="flex items-center gap-2">
+          <div className="bg-pink-500 kitsch-border p-2 text-center rotate-3">
+            <div className="text-[10px] font-black text-white uppercase leading-tight">Recovery<br/>Day {Math.max(1, historyData.length)}</div>
+          </div>
+          <button onClick={onLogout} className="p-2 text-zinc-500 hover:text-pink-500">
+            <LogOut className="w-5 h-5" />
+          </button>
         </div>
       </header>
 
@@ -217,7 +336,7 @@ const LogPage = () => {
         <Activity className="w-8 h-8 mx-auto text-pink-500 mb-4 animate-pulse" />
         <p className="font-unbounded text-[10px] text-zinc-600 uppercase tracking-widest leading-relaxed">
           Cloud Sync Active<br/>
-          Keeping it Hip & Healthy
+          {user.email}
         </p>
       </footer>
 
@@ -269,7 +388,7 @@ const LogPage = () => {
   );
 };
 
-// --- Other components and logic remain identical to previous clean version ---
+// --- SearchPage ---
 const SearchPage = () => {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<{ status: string; message: string; tip?: string } | null>(null);
@@ -362,7 +481,6 @@ const RecipesPage = () => {
   const [stage, setStage] = useState<RecoveryStage>(RecoveryStage.EARLY);
   const [recommendedRecipe, setRecommendedRecipe] = useState<Recipe | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
-  const navigate = useNavigate();
 
   const filteredRecipes = useMemo(() => RECIPES.filter(r => r.stage === stage), [stage]);
 
@@ -513,10 +631,29 @@ const InfoPage = () => {
 };
 
 function App() {
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupMessage, setPopupMessage] = useState('');
 
+  // 세션 체크
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // 팝업
+  useEffect(() => {
+    if (!user) return;
+    
     const lastShown = localStorage.getItem('last_popup_date');
     const today = new Date().toISOString().split('T')[0];
     if (lastShown !== today) {
@@ -526,13 +663,30 @@ function App() {
       localStorage.setItem('last_popup_date', today);
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [user]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-pink-500 font-unbounded animate-pulse">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthPage onLogin={setUser} />;
+  }
 
   return (
     <Router>
       <div className="max-w-md mx-auto min-h-screen bg-black border-x-2 border-zinc-900 shadow-2xl relative overflow-x-hidden">
         <Routes>
-          <Route path="/" element={<LogPage />} />
+          <Route path="/" element={<LogPage user={user} onLogout={handleLogout} />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/recipes" element={<RecipesPage />} />
           <Route path="/recipe/:id" element={<RecipeDetailPage />} />
