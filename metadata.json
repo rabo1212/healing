@@ -1,0 +1,8 @@
+
+{
+  "name": "회복도복",
+  "description": "위암 부분절제 환자를 위한 키치하고 힙한 식단 관리 및 회복 가이드 앱",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
