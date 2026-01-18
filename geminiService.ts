@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
 export async function checkFoodSafety(foodName: string) {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+  const apiKey = process.env.VITE_GEMINI_API_KEY || '';
   
   if (!apiKey) {
     return { status: 'error', message: 'API 키가 설정되지 않았습니다.', tip: 'Vercel 환경변수를 확인해주세요.' };
@@ -16,11 +16,7 @@ export async function checkFoodSafety(foodName: string) {
       '${foodName}'을(를) 먹어도 되는지 분석해주세요.
       
       반드시 아래 JSON 형식으로만 답변하세요:
-      {"status": "safe" 또는 "caution" 또는 "avoid", "message": "설명", "tip": "팁"}
-      
-      - safe: 먹어도 됨
-      - caution: 주의해서 먹어야 함  
-      - avoid: 피해야 함`,
+      {"status": "safe" 또는 "caution" 또는 "avoid", "message": "설명", "tip": "팁"}`,
     });
 
     if (response && response.text) {
@@ -34,15 +30,10 @@ export async function checkFoodSafety(foodName: string) {
       }
     }
     
-    return { status: 'error', message: '결과를 가져올 수 없습니다.', tip: '다시 시도해주세요.' };
+    return { status: 'error', message: '결과를 가져올 수 없습니다.' };
     
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
-    
-    if (error.message?.includes("API key")) {
-      return { status: 'error', message: 'API 키가 올바르지 않습니다.', tip: 'Vercel 환경변수를 확인해주세요.' };
-    }
-    
+    console.error("Gemini API Error Details:", error);
     return { status: 'error', message: '서버 오류가 발생했습니다.', tip: '잠시 후 다시 시도해주세요.' };
   }
 }
