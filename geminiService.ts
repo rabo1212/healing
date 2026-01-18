@@ -1,43 +1,48 @@
-
 import { GoogleGenAI } from "@google/genai";
 
 export async function checkFoodSafety(foodName: string) {
-  // 매 호출 시 인스턴스를 생성하여 최신 API 키를 사용하도록 보장
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+  
+  if (!apiKey) {
+    return { status: 'error', message: 'API 키가 설정되지 않았습니다.', tip: 'Vercel 환경변수를 확인해주세요.' };
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.0-flash',
       contents: `당신은 위암 부분절제 수술을 받은 환자를 돕는 전문 영양사입니다.
       '${foodName}'을(를) 먹어도 되는지 분석해주세요.
-      답변은 반드시 친절하고 힙한 한국어로 작성해주세요.
-      포함할 내용:
-      1. 섭취 가능 여부 (가능/주의/불가)
-      2. 위암 회복 단계별 이유 (덤핑 증후군, 소화 부담, 위점막 자극성 등 고려)
-      3. 먹으면 안 된다면 추천하는 대체 음식
-      의학적으로 검증된 정보를 바탕으로 짧고 명확하게 조언해주세요.`,
-      config: {
-        systemInstruction: "위암 환자의 안전을 최우선으로 합니다. 덤핑 증후군, 위점막 자극, 소화 불량 가능성을 반드시 체크하여 답변하세요. 1회 섭취량과 조리법에 따른 차이도 언급하면 좋습니다."
-      }
+      
+      반드시 아래 JSON 형식으로만 답변하세요:
+      {"status": "safe" 또는 "caution" 또는 "avoid", "message": "설명", "tip": "팁"}
+      
+      - safe: 먹어도 됨
+      - caution: 주의해서 먹어야 함  
+      - avoid: 피해야 함`,
     });
 
-    // .text는 메서드가 아니라 속성입니다.
     if (response && response.text) {
-      return response.text;
-    } else {
-      throw new Error("결과 텍스트를 찾을 수 없습니다.");
+      try {
+        const jsonMatch = response.text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[0]);
+        }
+      } catch {
+        return { status: 'unknown', message: response.text, tip: '담당 의료진과 상담하세요.' };
+      }
     }
+    
+    return { status: 'error', message: '결과를 가져올 수 없습니다.', tip: '다시 시도해주세요.' };
+    
   } catch (error: any) {
-    console.error("Gemini API Error Details:", error);
+    console.error("Gemini API Error:", error);
     
-    // 특정 오류 메시지에 따른 처리
-    if (error.message?.includes("Requested entity was not found")) {
-      return "모델을 찾을 수 없습니다. 설정된 모델명을 확인해주세요.";
-    }
     if (error.message?.includes("API key")) {
-      return "API 키가 올바르지 않거나 설정되지 않았습니다.";
+      return { status: 'error', message: 'API 키가 올바르지 않습니다.', tip: 'Vercel 환경변수를 확인해주세요.' };
     }
     
-    return "현재 분석 서버가 바빠요. 잠시 후 다시 시도해주거나, 담당 의사 선생님과 꼭 상의하세요! 힙한 회복을 응원합니다.";
+    return { status: 'error', message: '서버 오류가 발생했습니다.', tip: '잠시 후 다시 시도해주세요.' };
   }
 }
