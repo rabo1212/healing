@@ -11,9 +11,9 @@ import { RECIPES, MEDICAL_TIPS, RANDOM_MESSAGES } from './constants';
 import { checkFoodSafety } from './geminiService';
 
 // --- Supabase 설정 (환경변수 사용) ---
-// 실제 배포 시 Vercel 설정에서 값을 넣어줘야 합니다.
-const SUPABASE_URL = (window as any).process?.env?.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = (window as any).process?.env?.SUPABASE_ANON_KEY || '';
+// Vercel 환경변수에서 가져옵니다
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 // --- Helper Functions ---
 const getDailySeed = () => {
@@ -272,20 +272,38 @@ const LogPage = () => {
 // --- Other components and logic remain identical to previous clean version ---
 const SearchPage = () => {
   const [query, setQuery] = useState('');
-  const [result, setResult] = useState('');
+  const [result, setResult] = useState<{ status: string; message: string; tip?: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSearch = async () => {
     if (!query) return;
     setLoading(true);
-    setResult(''); 
+    setResult(null); 
     try {
       const res = await checkFoodSafety(query);
-      setResult(res || '분석 결과를 가져올 수 없습니다.');
+      setResult(res);
     } catch (e) {
-      setResult('오류가 발생했습니다. 다시 시도해주세요.');
+      setResult({ status: 'error', message: '오류가 발생했습니다. 다시 시도해주세요.' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'safe': return 'bg-green-600';
+      case 'caution': return 'bg-yellow-500';
+      case 'avoid': return 'bg-red-500';
+      default: return 'bg-zinc-600';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'safe': return '✅';
+      case 'caution': return '⚠️';
+      case 'avoid': return '❌';
+      default: return '❓';
     }
   };
 
@@ -316,12 +334,20 @@ const SearchPage = () => {
         </div>
       ) : result ? (
         <div className="kitsch-border bg-zinc-900 p-6 overflow-hidden">
+          <div className={`${getStatusColor(result.status)} text-white px-4 py-2 mb-4 font-bold text-center text-lg`}>
+            {getStatusIcon(result.status)} {result.status === 'safe' ? '먹어도 돼요!' : result.status === 'caution' ? '주의하세요!' : result.status === 'avoid' ? '피하세요!' : '확인 필요'}
+          </div>
           <h2 className="font-unbounded text-lg mb-4 text-pink-500 flex items-center gap-2">
              <Heart className="w-5 h-5 fill-current" /> 분석 결과
           </h2>
           <div className="whitespace-pre-line text-sm leading-relaxed border-t border-white/20 pt-4 font-semibold text-zinc-100">
-            {result}
+            {result.message}
           </div>
+          {result.tip && (
+            <div className="mt-4 bg-pink-500/20 border border-pink-500 p-3 text-sm text-pink-200">
+              💡 {result.tip}
+            </div>
+          )}
         </div>
       ) : (
         <div className="text-zinc-500 font-bold text-center py-12 border-2 border-zinc-800 border-dashed">
